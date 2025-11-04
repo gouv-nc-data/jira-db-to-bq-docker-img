@@ -82,4 +82,4 @@ LEFT JOIN LATERAL (
     WHERE cg.issueid = i.id
 ) cl ON true
 WHERE 
-    p.pkey = 'SIN';
+    p.pkey = %s;
