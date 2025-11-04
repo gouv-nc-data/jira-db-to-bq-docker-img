@@ -1,0 +1,81 @@
+import os
+import logging
+# import json
+
+# GCP
+# from google.oauth2 import service_account
+# import google.auth
+# import google.cloud.logging
+
+#----------------------------
+# Exemple pour auth sur GCP
+#----------------------------
+
+# # Credentials, générer une key pour le service account en amont (fichier json)
+# cred_file = 'xxx.json'
+# env_local = os.path.exists(cred_file)
+# # Authenticate google drive and bigquery APIs using credentials.
+# SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/bigquery']
+
+# if env_local:
+#     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = cred_file
+#     creds = service_account.Credentials.from_service_account_file(cred_file)
+# else:
+#     creds, _ = google.auth.default()
+
+# # retrive credentials for scopes defined.
+# scoped_credentials = creds.with_scopes(SCOPES)
+
+#----------------------------
+# Exemple de gestion de mot de passes via fichier externe
+#----------------------------
+
+# création d'un fichier secrets.json avec cette structure :
+# {
+#     "WS_KEY": "monsupermdp",
+#     "KEY_NUMERIC": 123456789
+# }
+
+
+# if env_local:
+#     def read_secrets() -> dict:
+#         filename = os.path.join('secrets.json')
+#         try:
+#             with open(filename, mode='r') as f:
+#                 return json.loads(f.read())
+#         except FileNotFoundError:
+#             return {}
+            
+#     secrets = read_secrets()
+#     pw = secrets['WS_KEY']
+# # si execution cloud les secrets seront passés en variable d'environnement
+# else:
+#     pw = os.environ['ws-isee-secret']
+
+#----------------------------
+# exemple de gestion du logging
+#----------------------------
+
+# if not(env_local):
+#     logging.basicConfig(level=logging.INFO)
+#     log_client = google.cloud.logging.Client()
+
+#     # Retrieves a Cloud Logging handler based on the environment
+#     # you're running in and integrates the handler with the
+#     # Python logging module. By default this captures all logs
+#     # at INFO level and higher
+#     log_client.setup_logging()
+# else:
+#     logging.basicConfig(level=logging.DEBUG) # NOTSET DEBUG INFO WARNING ERROR CRITICAL
+
+#----------------------------
+# Fonction principale
+#----------------------------
+
+
+def main(request):
+    print("Hello World!")
+    return "ok" 
+
+if __name__ == "__main__":
+    main(None) 
