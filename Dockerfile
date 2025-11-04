@@ -7,7 +7,7 @@ COPY pyproject.toml uv.lock ./
 
 # 2. Installez les dépendances.
 # Cette couche sera mise en cache tant que vos dépendances (toml/lock) ne changent pas.
-RUN uv sync
+RUN uv sync --locked
 
 # 3. Copiez ENSUITE le reste du code de votre application.
 COPY request.sql .
