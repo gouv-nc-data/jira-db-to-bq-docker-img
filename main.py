@@ -61,12 +61,10 @@ def load_jira_data():
         )
         
         # Créer la ressource avec custom SQL
-        @dlt.resource(
-            name=bq_table_id,
-            write_disposition='replace',
-        )
+        @dlt.resource(table_name=bq_table_id, write_disposition="replace")
         def jira_issues():
             """Récupère les issues JIRA de PostgreSQL."""
+            logger.info(f"Connexion à la base de données pour le projet: {jira_project_key}")
             db_source = sql_database(pg_url_secret)
             
             # Exécuter la requête SQL avec les paramètres
