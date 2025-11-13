@@ -1,59 +1,59 @@
 name: Build and Push Docker Image
 
-# on:
-#   push:
-#     branches:
-#       - main
-#     tags:
-#       - 'v*'
-#     paths-ignore:
-#       - 'README.md'
-#       - 'LICENSE'
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
 
-# env:
-#   IMAGE_NAME: ${{ vars.GCR_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_REPO_NAME }}/${{ github.event.repository.name }}
+env:
+  IMAGE_NAME: ${{ vars.GCR_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_REPO_NAME }}/${{ github.event.repository.name }}
 
-# jobs:
-#   build-and-push:
-#     runs-on: ubuntu-latest
-#     permissions:
-#       contents: read
-#       packages: write
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
-#     steps:
-#       - name: Checkout repository
-#         uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-#       - name: Set up Docker Buildx
-#         uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-#       - name: Authenticate to Google Cloud
-#         uses: google-github-actions/auth@v3
-#         with:
-#           credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
-#       - name: Configure Docker for Google Artifact Registry
-#         run: |
-#           gcloud auth configure-docker ${{ vars.GCR_REGION }}-docker.pkg.dev
+      - name: Configure Docker for Google Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ vars.GCR_REGION }}-docker.pkg.dev
 
-#       - name: Extract metadata
-#         id: meta
-#         uses: docker/metadata-action@v5
-#         with:
-#           images: ${{ env.IMAGE_NAME }}
-#           tags: |
-#             type=ref,event=branch
-#             type=semver,pattern={{version}}
-#             type=semver,pattern={{major}}.{{minor}}
-#             type=sha
-#             type=raw,value=latest,enable={{is_default_branch}}
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
 
-#       - name: Build and push Docker image
-#         uses: docker/build-push-action@v5
-#         with:
-#           context: .
-#           push: true
-#           tags: ${{ steps.meta.outputs.tags }}
-#           labels: ${{ steps.meta.outputs.labels }}
-#           cache-from: type=gha
-#           cache-to: type=gha,mode=max
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

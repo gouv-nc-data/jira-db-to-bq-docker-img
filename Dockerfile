@@ -26,4 +26,4 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # user non-root
 USER 1000
 
-CMD ["uv", "run", "python", "main.py"]
+CMD ["uv", "run", "main.py"]

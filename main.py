@@ -21,7 +21,7 @@ def load_jira_data():
     Pipeline dlt pour exporter JIRA de PostgreSQL vers BigQuery.
     """
     # Configuration PostgreSQL
-    pg_url_secret = os.getenv('PG_URL_SECRET', 'postgresql://localhost:5432/jira?user=postgres&password=your_password_here')
+    pg_url_secret = os.getenv('PG_URL_SECRET', 'postgresql://user:password@ip:port/schema?options=-c%20search_path%3Dschema')
 
     # Configuration JIRA
     jira_project_key = os.getenv('JIRA_PROJECT_KEY')
@@ -55,34 +55,40 @@ def load_jira_data():
         logger.info("Initialisation de la pipeline dlt")
         pipeline = dlt.pipeline(
             pipeline_name='jira_to_bq',
-            destination='bigquery',
+            destination=dlt.destinations.bigquery(location='EU'),
             dataset_name=bq_dataset_id,
             # dlt crée automatiquement le dataset s'il n'existe pas
         )
         
         # Créer la ressource avec custom SQL
-        @dlt.resource(table_name=bq_table_id, write_disposition="replace")
+        @dlt.resource(table_name=bq_table_id,
+                      write_disposition="replace",
+                      max_table_nesting=2)
         def jira_issues():
             """Récupère les issues JIRA de PostgreSQL."""
+            import psycopg2
+
             logger.info(f"Connexion à la base de données pour le projet: {jira_project_key}")
-            db_source = sql_database(pg_url_secret)
+            conn = psycopg2.connect(pg_url_secret)
             
-            # Exécuter la requête SQL avec les paramètres
-            with db_source.connection.cursor() as cursor:
-                logger.info(f"Exécution de la requête pour le projet: {jira_project_key}")
-                cursor.execute(sql_query, (jira_project_key,))
-                
-                # Récupérer les colonnes
-                columns = [desc[0] for desc in cursor.description]
-                logger.info(f"Colonnes trouvées: {len(columns)}")
-                
-                # Itérer et yielder les données
-                row_count = 0
-                for row in cursor.fetchall():
-                    yield dict(zip(columns, row))
-                    row_count += 1
-                
-                logger.info(f"Nombre de lignes extraites: {row_count}")
+            try:
+                with conn.cursor() as cursor:
+                    logger.info(f"Exécution de la requête pour le projet: {jira_project_key}")
+                    cursor.execute(sql_query, (jira_project_key,))
+                    
+                    # Récupérer les colonnes
+                    columns = [desc[0] for desc in cursor.description]
+                    logger.info(f"Colonnes trouvées: {len(columns)}")
+                    
+                    # Yielder les données
+                    row_count = 0
+                    for row in cursor.fetchall():
+                        yield dict(zip(columns, row))
+                        row_count += 1
+                    
+                    logger.info(f"Nombre de lignes extraites: {row_count}")
+            finally:
+                conn.close()
         
         # Exécuter la pipeline
         logger.info("Lancement de la pipeline dlt")
