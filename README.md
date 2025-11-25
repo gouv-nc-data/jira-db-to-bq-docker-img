@@ -33,6 +33,7 @@ cp .env.example .env
 - `POSTGRES_DB` (défaut: `jira`)
 - `BQ_DATASET_ID` (défaut: `jira_export`)
 - `BQ_TABLE_ID` (défaut: `issues`)
+- `BQ_PROJECT_ID` (optionnel: ID du projet GCP de destination si différent du projet d'exécution)
 
 ## Utilisation
 

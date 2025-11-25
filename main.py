@@ -34,6 +34,7 @@ def load_jira_data():
     # Configuration BigQuery
     bq_dataset_id = os.getenv('BQ_DATASET_ID', 'jira_export')
     bq_table_id = os.getenv('BQ_TABLE_ID', 'issues')
+    bq_project_id = os.getenv('BQ_PROJECT_ID')
     
     required_vars = [
         ('PG_URL_SECRET', pg_url_secret),
@@ -58,9 +59,14 @@ def load_jira_data():
         
         # Créer la pipeline dlt
         logger.info("Initialisation de la pipeline dlt")
+        
+        destination_params = {"location": "EU"}
+        if bq_project_id:
+            destination_params["project_id"] = bq_project_id
+
         pipeline = dlt.pipeline(
             pipeline_name='jira_to_bq',
-            destination=dlt.destinations.bigquery(location='EU'),
+            destination=dlt.destinations.bigquery(**destination_params),
             dataset_name=bq_dataset_id,
             # dlt crée automatiquement le dataset s'il n'existe pas
         )
