@@ -23,10 +23,16 @@ def load_jira_data():
     """
     # Configuration PostgreSQL
     secret_url = os.environ.get("PG_URL_SECRET")
+
+    logger.info(f"Récupération du secret PostgreSQL depuis: {secret_url}")
+
     client = secretmanager.SecretManagerServiceClient()
     response = client.access_secret_version(request={"name": secret_url})
     pg_url_secret = response.payload.data.decode("UTF-8")
     # postgresql://user:password@ip:port/schema?options=-c%20search_path%3Dschema
+
+    logger.info(f"10 premiers caractères du secret: {pg_url_secret[:10]}")
+    logger.info(f"10 derniers caractères du secret: {pg_url_secret[-10:]}")
 
     # Configuration JIRA
     jira_project_key = os.getenv('JIRA_PROJECT_KEY')
@@ -80,10 +86,16 @@ def load_jira_data():
             import psycopg2
 
             logger.info(f"Connexion à la base de données pour le projet: {jira_project_key}")
-            conn = psycopg2.connect(pg_url_secret)
+            try:
+                conn = psycopg2.connect(pg_url_secret)
+                logger.info("Connexion PostgreSQL établie avec succès")
+            except Exception as e:
+                logger.error(f"Échec de la connexion PostgreSQL : {e}")
+                raise e
             
             try:
                 with conn.cursor() as cursor:
+                    logger.info("Curseur obtenu, lancement de la requête...")
                     logger.info(f"Exécution de la requête pour le projet: {jira_project_key}")
                     cursor.execute(sql_query, (jira_project_key,))
                     
