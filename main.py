@@ -23,16 +23,10 @@ def load_jira_data():
     """
     # Configuration PostgreSQL
     secret_url = os.environ.get("PG_URL_SECRET")
-
-    logger.info(f"Récupération du secret PostgreSQL depuis: {secret_url}")
-
     client = secretmanager.SecretManagerServiceClient()
     response = client.access_secret_version(request={"name": secret_url})
     pg_url_secret = response.payload.data.decode("UTF-8")
     # postgresql://user:password@ip:port/schema?options=-c%20search_path%3Dschema
-
-    logger.info(f"10 premiers caractères du secret: {pg_url_secret[:10]}")
-    logger.info(f"10 derniers caractères du secret: {pg_url_secret[-10:]}")
 
     # Configuration JIRA
     jira_project_key = os.getenv('JIRA_PROJECT_KEY')
