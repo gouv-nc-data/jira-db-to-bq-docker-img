@@ -31,8 +31,13 @@ logging.getLogger().setLevel(log_level)
 # et soient loggés en JSON avec la sévérité WARNING au lieu de sortir sur stderr (ERROR)
 logging.captureWarnings(True)
 
-# Unifier le logging dlt avec le logging applicatif
-# On force dlt à utiliser le même niveau que l'app et à passer par notre handler JSON
+# Configuration dynamique de dlt via variables d'environnement (méthode recommandée par dlt)
+# On le fait en Python pour que ça suive la variable LOG_LEVEL de l'utilisateur
+os.environ["RUNTIME__LOG_LEVEL"] = log_level_name
+os.environ["RUNTIME__LOG_FORMAT"] = "JSON"
+os.environ["LOG_FORMAT"] = "JSON" # Fallback
+
+# On nettoie quand même les handlers existants au cas où dlt se serait déjà initialisé
 dlt_logger = logging.getLogger("dlt")
 dlt_logger.setLevel(log_level)
 dlt_logger.handlers = []  # Supprime les handlers par défaut de dlt (évite les doublons ou le format texte)
