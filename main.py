@@ -91,7 +91,7 @@ def load_jira_data():
 
             logger.info(f"Connexion à la base de données pour le projet: {jira_project_key}")
             try:
-                conn = psycopg2.connect(pg_url_secret)
+                conn = psycopg2.connect(pg_url_secret, connect_timeout=30)
                 logger.info("Connexion PostgreSQL établie avec succès")
             except Exception as e:
                 logger.error(f"Échec de la connexion PostgreSQL : {e}")
@@ -100,7 +100,6 @@ def load_jira_data():
             try:
                 with conn.cursor() as cursor:
                     logger.info("Curseur obtenu, lancement de la requête...")
-                    logger.info(f"Exécution de la requête pour le projet: {jira_project_key}")
                     cursor.execute(sql_query, (jira_project_key,))
                     
                     # Récupérer les colonnes
