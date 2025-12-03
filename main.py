@@ -27,6 +27,10 @@ log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
 log_level = getattr(logging, log_level_name, logging.INFO)
 logging.getLogger().setLevel(log_level)
 
+# Capturer les warnings Python (ex: UserWarning de BigQuery) pour qu'ils passent par le logging system
+# et soient loggés en JSON avec la sévérité WARNING au lieu de sortir sur stderr (ERROR)
+logging.captureWarnings(True)
+
 
 
 def load_jira_data():

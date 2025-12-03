@@ -26,4 +26,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # user non-root
 USER 1000
 
-CMD ["uv", "run", "main.py"]
+# Place executables in the environment at the front of the path
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Reset the entrypoint, don't invoke `uv`
+ENTRYPOINT []
+
+CMD ["python", "main.py"]
