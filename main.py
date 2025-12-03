@@ -1,16 +1,18 @@
 import os
 import sys
-import logging
 from urllib import response
 
 import dlt
 from dlt.sources.sql_database import sql_database
-from loguru import logger
+import logging
+# from loguru import logger
 import google.cloud.logging
+
 from dotenv import load_dotenv
 from google.cloud import secretmanager
 
 load_dotenv()
+
 
 # Configuration Cloud Logging selon la documentation officielle
 # https://cloud.google.com/logging/docs/setup/python
@@ -19,13 +21,17 @@ load_dotenv()
 logging_client = google.cloud.logging.Client()
 logging_client.setup_logging()
 
-# Configuration de loguru pour nos propres logs
-logger.remove()  # Supprimer le handler par défaut
-logger.add(
-    sys.stdout,
-    format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
-    level="INFO",
-)
+# # Capturer les warnings Python (ex: dlt) pour qu'ils passent par le logging system
+# # et ne soient pas écrits sur stderr (ce qui les ferait apparaître en ERROR)
+# logging.captureWarnings(True)
+
+# # Configuration de loguru pour nos propres logs
+# logger.remove()  # Supprimer le handler par défaut
+# logger.add(
+#     sys.stdout,
+#     format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+#     level="INFO",
+# )
 
 def load_jira_data():
     """
@@ -55,20 +61,20 @@ def load_jira_data():
     
     for var_name, var_value in required_vars:
         if not var_value:
-            logger.error(f"{var_name} n'est pas défini")
+            logging.error(f"{var_name} n'est pas défini")
             sys.exit(1)
     
-    logger.info(f"Début de l'export JIRA vers BigQuery - Projet: {jira_project_key}")
+    logging.info(f"Début de l'export JIRA vers BigQuery - Projet: {jira_project_key}")
     
     try:
         # Lire la requête SQL
         with open('request.sql', 'r', encoding='utf-8') as f:
             sql_query = f.read()
         
-        logger.info("Fichier request.sql chargé")
-        
+        logging.info("Fichier request.sql chargé")
+
         # Créer la pipeline dlt
-        logger.info("Initialisation de la pipeline dlt")
+        logging.info("Initialisation de la pipeline dlt")
         
         destination_params = {"location": "EU"}
         if bq_project_id:
@@ -89,22 +95,22 @@ def load_jira_data():
             """Récupère les issues JIRA de PostgreSQL."""
             import psycopg2
 
-            logger.info(f"Connexion à la base de données pour le projet: {jira_project_key}")
+            logging.info(f"Connexion à la base de données pour le projet: {jira_project_key}")
             try:
                 conn = psycopg2.connect(pg_url_secret, connect_timeout=30)
-                logger.info("Connexion PostgreSQL établie avec succès")
+                logging.info("Connexion PostgreSQL établie avec succès")
             except Exception as e:
-                logger.error(f"Échec de la connexion PostgreSQL : {e}")
+                logging.error(f"Échec de la connexion PostgreSQL : {e}")
                 raise e
             
             try:
                 with conn.cursor() as cursor:
-                    logger.info("Curseur obtenu, lancement de la requête...")
+                    logging.info("Curseur obtenu, lancement de la requête...")
                     cursor.execute(sql_query, (jira_project_key,))
                     
                     # Récupérer les colonnes
                     columns = [desc[0] for desc in cursor.description]
-                    logger.info(f"Colonnes trouvées: {len(columns)}")
+                    logging.info(f"Colonnes trouvées: {len(columns)}")
                     
                     # Yielder les données
                     row_count = 0
@@ -112,21 +118,21 @@ def load_jira_data():
                         yield dict(zip(columns, row))
                         row_count += 1
                     
-                    logger.info(f"Nombre de lignes extraites: {row_count}")
+                    logging.info(f"Nombre de lignes extraites: {row_count}")
             finally:
                 conn.close()
         
         # Exécuter la pipeline
-        logger.info("Lancement de la pipeline dlt")
+        logging.info("Lancement de la pipeline dlt")
         load_info = pipeline.run(jira_issues())
         
-        logger.info("Export terminé avec succès")
+        logging.info("Export terminé avec succès")
         
     except FileNotFoundError as e:
-        logger.error(f"Fichier request.sql non trouvé: {e}")
+        logging.error(f"Fichier request.sql non trouvé: {e}")
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Erreur lors de l'export: {e}", exc_info=True)
+        logging.error(f"Erreur lors de l'export: {e}", exc_info=True)
         sys.exit(1)
 
 
