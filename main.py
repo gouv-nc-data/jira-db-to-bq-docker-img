@@ -14,24 +14,20 @@ from google.cloud import secretmanager
 load_dotenv()
 
 
-# Configuration Cloud Logging selon la documentation officielle
-# https://cloud.google.com/logging/docs/setup/python
-# Cela configure le module logging standard (utilisé par dlt) pour envoyer
-# les logs à Cloud Logging avec les bons niveaux de sévérité
-logging_client = google.cloud.logging.Client()
-logging_client.setup_logging()
+# Configuration Cloud Logging avec StructuredLogHandler
+# Cela configure le module logging standard pour écrire des logs JSON sur stdout
+# qui seront automatiquement parsés par l'agent GCP (Fluentd/Fluent Bit)
+from google.cloud.logging.handlers import StructuredLogHandler
 
-# # Capturer les warnings Python (ex: dlt) pour qu'ils passent par le logging system
-# # et ne soient pas écrits sur stderr (ce qui les ferait apparaître en ERROR)
-# logging.captureWarnings(True)
+handler = StructuredLogHandler()
+logging.getLogger().addHandler(handler)
 
-# # Configuration de loguru pour nos propres logs
-# logger.remove()  # Supprimer le handler par défaut
-# logger.add(
-#     sys.stdout,
-#     format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
-#     level="INFO",
-# )
+# Configuration du niveau de log via variable d'environnement (défaut: INFO)
+log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = getattr(logging, log_level_name, logging.INFO)
+logging.getLogger().setLevel(log_level)
+
+
 
 def load_jira_data():
     """
