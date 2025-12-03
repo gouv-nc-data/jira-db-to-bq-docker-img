@@ -31,6 +31,13 @@ logging.getLogger().setLevel(log_level)
 # et soient loggés en JSON avec la sévérité WARNING au lieu de sortir sur stderr (ERROR)
 logging.captureWarnings(True)
 
+# Unifier le logging dlt avec le logging applicatif
+# On force dlt à utiliser le même niveau que l'app et à passer par notre handler JSON
+dlt_logger = logging.getLogger("dlt")
+dlt_logger.setLevel(log_level)
+dlt_logger.handlers = []  # Supprime les handlers par défaut de dlt (évite les doublons ou le format texte)
+dlt_logger.propagate = True # Remonte les logs au root logger (qui a le StructuredLogHandler)
+
 
 
 def load_jira_data():
