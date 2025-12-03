@@ -1,15 +1,25 @@
 import os
 import sys
+import logging
 from urllib import response
 
 import dlt
 from dlt.sources.sql_database import sql_database
 from loguru import logger
+import google.cloud.logging
 from dotenv import load_dotenv
 from google.cloud import secretmanager
 
 load_dotenv()
 
+# Configuration Cloud Logging selon la documentation officielle
+# https://cloud.google.com/logging/docs/setup/python
+# Cela configure le module logging standard (utilisé par dlt) pour envoyer
+# les logs à Cloud Logging avec les bons niveaux de sévérité
+logging_client = google.cloud.logging.Client()
+logging_client.setup_logging()
+
+# Configuration de loguru pour nos propres logs
 logger.remove()  # Supprimer le handler par défaut
 logger.add(
     sys.stdout,
