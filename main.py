@@ -60,14 +60,24 @@ def load_jira_data():
     jira_project_key = os.getenv('JIRA_PROJECT_KEY')
     
     # Configuration BigQuery
-    bq_dataset_id = os.getenv('BQ_DATASET_ID', 'jira_export')
+    bq_dataset_id = os.getenv('BQ_DATASET_ID')
+    if not bq_dataset_id:
+        if not jira_project_key:
+            logging.error("JIRA_PROJECT_KEY n'est pas défini et BQ_DATASET_ID n'est pas fourni. Impossible de générer un nom de dataset.")
+            sys.exit(1)
+        bq_dataset_id = f'jira_{jira_project_key}'
     bq_table_id = os.getenv('BQ_TABLE_ID', 'issues')
+
+    google_cloud_project = os.getenv('GOOGLE_CLOUD_PROJECT')
     bq_project_id = os.getenv('BQ_PROJECT_ID')
+    if not bq_project_id:
+        if not google_cloud_project:
+            logging.error("BQ_PROJECT_ID n'est pas fourni et GOOGLE_CLOUD_PROJECT n'est pas défini. Impossible de savoir où créer la ressource")
+            sys.exit(1)
+        bq_project_id = google_cloud_project
     
     required_vars = [
         ('PG_URL_SECRET', pg_url_secret),
-        ('JIRA_PROJECT_KEY', jira_project_key),
-        ('BQ_DATASET_ID', bq_dataset_id),
         ('BQ_TABLE_ID', bq_table_id),
     ]
     
