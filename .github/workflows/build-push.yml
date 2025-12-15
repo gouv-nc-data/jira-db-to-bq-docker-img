@@ -14,9 +14,10 @@ permissions:
   contents: read
   issues: write
   packages: write
-
+  id-token: write
   
 jobs:
   build-push-gcp:
     uses: gouv-nc-data/github-workflows/.github/workflows/build-push-gcp.yml@main
-    secrets: inherit
+    secrets:
+      GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
