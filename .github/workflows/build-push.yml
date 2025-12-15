@@ -17,6 +17,6 @@ permissions:
 
   
 jobs:
-  terraform:
+  build-push-gcp:
     uses: gouv-nc-data/github-workflows/.github/workflows/build-push-gcp.yml@main
     secrets: inherit
