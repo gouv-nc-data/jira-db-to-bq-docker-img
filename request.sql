@@ -38,7 +38,7 @@ LEFT JOIN
 LEFT JOIN 
     resolution res ON res.id = i.resolution
 LEFT JOIN 
-    schemeissuesecuritylevels sl ON sl.id = i.security
+    issuesecurityscheme sl ON sl.id = i.security
 LEFT JOIN 
     app_user u_creator ON i.creator = u_creator.user_key
 LEFT JOIN 
