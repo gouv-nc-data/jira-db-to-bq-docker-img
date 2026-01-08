@@ -5,11 +5,16 @@ SELECT
     i.issuenum AS numero,
     pr.pname AS type_urgence,
     it.pname AS type_tache,
-    it.pstyle sous_type_tache,
+    it.pstyle AS sous_type_tache,
     i.summary AS resume,
     iss.pname AS status_tache,
+        u_creator.lower_user_name AS createur,
     u1.lower_user_name AS rapporteur,
     u2.lower_user_name AS responsable,
+        res.pname AS resolution,
+    sl.name AS niveau_securite,
+    COALESCE(i.votes, 0) AS nb_votes,
+    COALESCE(i.watches, 0) AS nb_observateurs,
     i.description,
     i.priority AS priorite,
     i.created AS create_date,
@@ -31,9 +36,17 @@ LEFT JOIN
 LEFT JOIN 
     priority pr ON pr.id = i.priority
 LEFT JOIN 
+    resolution res ON res.id = i.resolution
+LEFT JOIN 
+    schemeissuesecuritylevels sl ON sl.id = i.security
+LEFT JOIN 
+    app_user u_creator ON i.creator = u_creator.user_key
+LEFT JOIN 
     app_user u1 ON i.reporter = u1.user_key
 LEFT JOIN 
     app_user u2 ON i.assignee = u2.user_key
+
+-- Sous-requêtes pour les données JSON (Commentaires, Etiquettes, Champs persos, Historique)
 LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
         'create_date', a.created, 
