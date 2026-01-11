@@ -38,15 +38,13 @@ LEFT JOIN
 LEFT JOIN 
     resolution res ON res.id = i.resolution
 LEFT JOIN 
-    issuesecurityscheme sl ON sl.id = i.security
+    schemeissuesecuritylevels sl ON sl.id = i.security
 LEFT JOIN 
     app_user u_creator ON i.creator = u_creator.user_key
 LEFT JOIN 
     app_user u1 ON i.reporter = u1.user_key
 LEFT JOIN 
     app_user u2 ON i.assignee = u2.user_key
-
--- Sous-requêtes pour les données JSON (Commentaires, Etiquettes, Champs persos, Historique)
 LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
         'create_date', a.created, 
