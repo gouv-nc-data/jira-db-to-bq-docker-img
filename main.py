@@ -3,6 +3,7 @@ import sys
 from urllib import response
 
 import dlt
+from dlt.extract import make_nested_hints
 from dlt.sources.sql_database import sql_database
 import logging
 # from loguru import logger
@@ -112,9 +113,24 @@ def load_jira_data():
         )
         
         # Créer la ressource avec custom SQL
+        # custom_fields.value est un COALESCE(stringvalue, numbervalue::text,
+        # textvalue, datevalue::text) : du texte libre, des nombres et des dates
+        # dans une seule colonne. Sans ce hint, dlt en infère le type d'après les
+        # premières valeurs vues — timestamp dès qu'il croise des datevalue ISO
+        # (le détecteur iso_timestamp est actif par défaut) — et le résultat
+        # dépend alors du projet Jira :
+        #   - les nombres sont convertis en dates absurdes (an 0078, an 9908) ;
+        #   - un nombre hors bornes fait échouer tout le run en step=normalize
+        #     (pendulum.from_timestamp -> OSError [Errno 75], vu sur IMP).
+        # On force donc le type en text : cette colonne n'est pas une date.
         @dlt.resource(table_name=bq_table_id,
                       write_disposition="replace",
-                      max_table_nesting=2)
+                      max_table_nesting=2,
+                      nested_hints={
+                          "custom_fields": make_nested_hints(
+                              columns=[{"name": "value", "data_type": "text"}]
+                          )
+                      })
         def jira_issues():
             """Récupère les issues JIRA de PostgreSQL."""
             import psycopg2
