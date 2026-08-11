@@ -121,10 +121,14 @@ LEFT JOIN LATERAL (
     JOIN project pp ON pp.id = ip.project
     WHERE il.destination = i.id
       AND lt.pstyle = 'jira_subtask'
+    ORDER BY il.id
     LIMIT 1
 ) par ON true
 -- Tous les liens de l'issue, dans les deux sens : sous-taches (style
 -- 'jira_subtask') et liens classiques (clone, bloque, est lie a...).
+-- issuelink.sequence porte l'ordre d'affichage defini dans Jira (l'ordre des
+-- sous-taches d'un parent) : on le remonte et on trie dessus, sans quoi
+-- jsonb_agg produit un ordre non deterministe d'un run a l'autre.
 -- Perf : le OR sur source/destination suppose que la replique DMZ porte les index
 -- de issuelink sur ces deux colonnes. Sans eux, ce LATERAL degenere en seq scan
 -- par ligne — a surveiller sur IMP (42 698 issues).
@@ -135,8 +139,9 @@ LEFT JOIN LATERAL (
         'sens', CASE WHEN il.source = i.id THEN 'sortant' ELSE 'entrant' END,
         'libelle', CASE WHEN il.source = i.id THEN lt.outward ELSE lt.inward END,
         'issue_key', p2.pkey || '-' || i2.issuenum,
-        'resume', i2.summary
-    )) AS liens
+        'resume', i2.summary,
+        'ordre', il.sequence
+    ) ORDER BY il.sequence NULLS LAST, il.id) AS liens
     FROM issuelink il
     JOIN issuelinktype lt ON lt.id = il.linktype
     JOIN jiraissue i2 ON i2.id = CASE WHEN il.source = i.id THEN il.destination ELSE il.source END
@@ -152,7 +157,7 @@ LEFT JOIN LATERAL (
         'taille_octets', fa.filesize,
         'auteur', u5.lower_user_name,
         'create_date', fa.created
-    )) AS pieces_jointes
+    ) ORDER BY fa.created, fa.id) AS pieces_jointes
     FROM fileattachment fa
     LEFT JOIN app_user u5 ON fa.author = u5.user_key
     WHERE fa.issueid = i.id
