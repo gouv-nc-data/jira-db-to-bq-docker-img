@@ -1,4 +1,98 @@
-SELECT 
+-- Les issues du projet, calculées une seule fois.
+-- Les CTE d'agrégation ci-dessous s'appuient dessus au lieu d'être corrélées à
+-- chaque ligne de jiraissue : c'est ce qui évite de rebalayer issuelink et
+-- fileattachment une fois par issue (voir le commentaire de liens_plats).
+WITH issues_projet AS (
+    SELECT i.id
+    FROM jiraissue i
+    JOIN project p ON p.id = i.project
+    WHERE p.pkey = %s
+),
+-- Les liens de l'issue vont dans les deux sens, ce qui s'écrivait naturellement
+-- `WHERE il.source = i.id OR il.destination = i.id`. Mais un OR sur deux colonnes
+-- est ininstrumentable par un index, et la réplique DMZ ne porte de toute façon
+-- que pk_issuelink : chaque issue déclenchait donc un Seq Scan complet des
+-- 426 668 lignes d'issuelink (EXPLAIN sur EP : coût 313 M, run tué par
+-- activeDeadlineSeconds). On déplie ici les deux sens en une seule passe, ce qui
+-- supprime le OR et rend l'agrégation groupable.
+--
+-- La branche 'entrant' exclut les auto-liens (source = destination, 1 occurrence
+-- en base) : ils sortent déjà par la branche 'sortant', comme le faisait le
+-- CASE de la version corrélée. Sans ce filtre ils seraient comptés deux fois.
+liens_plats AS (
+    SELECT il.source AS issue_id, il.destination AS autre_id,
+           il.linktype, il.sequence, il.id, 'sortant' AS sens
+    FROM issuelink il
+    JOIN issues_projet ip ON ip.id = il.source
+    UNION ALL
+    SELECT il.destination, il.source,
+           il.linktype, il.sequence, il.id, 'entrant'
+    FROM issuelink il
+    JOIN issues_projet ip ON ip.id = il.destination
+    WHERE il.source <> il.destination
+),
+-- Tous les liens de l'issue : sous-tâches (style 'jira_subtask') et liens
+-- classiques (clone, bloque, est lié à...).
+-- issuelink.sequence porte l'ordre d'affichage défini dans Jira (l'ordre des
+-- sous-tâches d'un parent) : on le remonte et on trie dessus, sans quoi
+-- jsonb_agg produit un ordre non déterministe d'un run à l'autre.
+liens_agg AS (
+    SELECT lp.issue_id,
+           jsonb_agg(jsonb_build_object(
+               'type', lt.linkname,
+               'style', lt.pstyle,
+               'sens', lp.sens,
+               'libelle', CASE WHEN lp.sens = 'sortant' THEN lt.outward ELSE lt.inward END,
+               'issue_key', p2.pkey || '-' || i2.issuenum,
+               'resume', i2.summary,
+               'ordre', lp.sequence
+           ) ORDER BY lp.sequence NULLS LAST, lp.id) AS liens
+    FROM liens_plats lp
+    JOIN issuelinktype lt ON lt.id = lp.linktype
+    JOIN jiraissue i2 ON i2.id = lp.autre_id
+    JOIN project p2 ON p2.id = i2.project
+    GROUP BY lp.issue_id
+),
+-- Parent d'une sous-tâche. En Jira DC la relation n'est pas une colonne de
+-- jiraissue (contrairement au Cloud) : elle vit dans issuelink, avec un
+-- issuelinktype de style 'jira_subtask' (source = parent, destination = enfant).
+-- Vu depuis l'enfant le lien est donc 'entrant', et autre_id porte le parent.
+-- Colonnes scalaires plutôt qu'une table enfant : c'est le cas d'usage courant,
+-- autant qu'il soit exploitable sans jointure côté BigQuery.
+-- DISTINCT ON + ORDER BY lp.id reproduit le `ORDER BY il.id LIMIT 1` d'origine.
+parents AS (
+    SELECT DISTINCT ON (lp.issue_id)
+           lp.issue_id,
+           ipa.id AS parent_id,
+           ppa.pkey || '-' || ipa.issuenum AS parent_key,
+           ipa.summary AS parent_resume
+    FROM liens_plats lp
+    JOIN issuelinktype lt ON lt.id = lp.linktype
+    JOIN jiraissue ipa ON ipa.id = lp.autre_id
+    JOIN project ppa ON ppa.id = ipa.project
+    WHERE lp.sens = 'entrant'
+      AND lt.pstyle = 'jira_subtask'
+    ORDER BY lp.issue_id, lp.id
+),
+-- Métadonnées des pièces jointes uniquement : le binaire vit sur le filesystem
+-- Jira, hors base.
+-- Même motif que liens_plats : fileattachment (1 520 807 lignes) n'a pas d'index
+-- sur issueid en DMZ, donc la version corrélée la rebalayait à chaque issue.
+attachments AS (
+    SELECT fa.issueid,
+           jsonb_agg(jsonb_build_object(
+               'nom', fa.filename,
+               'mimetype', fa.mimetype,
+               'taille_octets', fa.filesize,
+               'auteur', u5.lower_user_name,
+               'create_date', fa.created
+           ) ORDER BY fa.created, fa.id) AS pieces_jointes
+    FROM fileattachment fa
+    JOIN issues_projet ip ON ip.id = fa.issueid
+    LEFT JOIN app_user u5 ON fa.author = u5.user_key
+    GROUP BY fa.issueid
+)
+SELECT
     i.id,
     p.pname AS project,
     p.pkey AS project_code,
@@ -40,29 +134,41 @@ SELECT
     att.pieces_jointes
 FROM
     jiraissue i
-JOIN 
+-- Le périmètre vient de issues_projet : le filtre projet n'est appliqué qu'une
+-- fois, dans la CTE. La requête ne porte donc qu'un seul placeholder, celui
+-- que main.py passe à cursor.execute. Ne pas introduire de caractère pour-cent
+-- dans ces commentaires : psycopg2 interpole la chaîne entière avant
+-- PostgreSQL, et un marqueur de format en commentaire, même inerte pour le
+-- moteur SQL, ferait échouer l'exécution côté Python.
+JOIN
+    issues_projet ipr ON ipr.id = i.id
+JOIN
     project p ON p.id = i.project
-LEFT JOIN 
+LEFT JOIN
     issuetype it ON it.id = i.issuetype
-LEFT JOIN 
+LEFT JOIN
     issuestatus iss ON iss.id = i.issuestatus
-LEFT JOIN 
+LEFT JOIN
     priority pr ON pr.id = i.priority
-LEFT JOIN 
+LEFT JOIN
     resolution res ON res.id = i.resolution
-LEFT JOIN 
+LEFT JOIN
     schemeissuesecuritylevels sl ON sl.id = i.security
-LEFT JOIN 
+LEFT JOIN
     app_user u_creator ON i.creator = u_creator.user_key
-LEFT JOIN 
+LEFT JOIN
     app_user u1 ON i.reporter = u1.user_key
-LEFT JOIN 
+LEFT JOIN
     app_user u2 ON i.assignee = u2.user_key
+-- Les LATERAL ci-dessous restent corrélés : jiraaction, label, customfieldvalue
+-- et changegroup portent tous un index sur la colonne d'issue en DMZ
+-- (action_issue, label_issue, cfvalue_issue, chggroup_issue_id), donc chaque
+-- itération est un Index Scan et non un Seq Scan.
 LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
-        'create_date', a.created, 
-        'update_date', a.updated, 
-        'auteur', u3.lower_user_name, 
+        'create_date', a.created,
+        'update_date', a.updated,
+        'auteur', u3.lower_user_name,
         'description', a.actionbody
     )) AS commentaires
     FROM jiraaction a
@@ -76,18 +182,18 @@ LEFT JOIN LATERAL (
 ) e ON true
 LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
-        'field', cv.cfname, 
-        'option', co.customvalue, 
+        'field', cv.cfname,
+        'option', co.customvalue,
         'value', COALESCE(
-            cfv.stringvalue, 
-            cfv.numbervalue::text, 
-            cfv.textvalue, 
+            cfv.stringvalue,
+            cfv.numbervalue::text,
+            cfv.textvalue,
             cfv.datevalue::text
         )
     )) AS custom_fields
     FROM customfieldvalue cfv
     JOIN customfield cv ON cfv.customfield = cv.id
-    LEFT JOIN customfieldoption co ON cfv.stringvalue = co.id::text 
+    LEFT JOIN customfieldoption co ON cfv.stringvalue = co.id::text
     WHERE cfv.issue = i.id
 ) fields ON true
 LEFT JOIN LATERAL (
@@ -105,62 +211,6 @@ LEFT JOIN LATERAL (
     LEFT JOIN app_user u4 ON cg.author = u4.user_key
     WHERE cg.issueid = i.id
 ) cl ON true
--- Parent d'une sous-tache. En Jira DC la relation n'est pas une colonne de
--- jiraissue (contrairement au Cloud) : elle vit dans issuelink, avec un
--- issuelinktype de style 'jira_subtask' (source = parent, destination = enfant).
--- Colonnes scalaires plutot qu'une table enfant : c'est le cas d'usage courant,
--- autant qu'il soit exploitable sans jointure cote BigQuery.
-LEFT JOIN LATERAL (
-    SELECT
-        ip.id AS parent_id,
-        pp.pkey || '-' || ip.issuenum AS parent_key,
-        ip.summary AS parent_resume
-    FROM issuelink il
-    JOIN issuelinktype lt ON lt.id = il.linktype
-    JOIN jiraissue ip ON ip.id = il.source
-    JOIN project pp ON pp.id = ip.project
-    WHERE il.destination = i.id
-      AND lt.pstyle = 'jira_subtask'
-    ORDER BY il.id
-    LIMIT 1
-) par ON true
--- Tous les liens de l'issue, dans les deux sens : sous-taches (style
--- 'jira_subtask') et liens classiques (clone, bloque, est lie a...).
--- issuelink.sequence porte l'ordre d'affichage defini dans Jira (l'ordre des
--- sous-taches d'un parent) : on le remonte et on trie dessus, sans quoi
--- jsonb_agg produit un ordre non deterministe d'un run a l'autre.
--- Perf : le OR sur source/destination suppose que la replique DMZ porte les index
--- de issuelink sur ces deux colonnes. Sans eux, ce LATERAL degenere en seq scan
--- par ligne — a surveiller sur IMP (42 698 issues).
-LEFT JOIN LATERAL (
-    SELECT jsonb_agg(jsonb_build_object(
-        'type', lt.linkname,
-        'style', lt.pstyle,
-        'sens', CASE WHEN il.source = i.id THEN 'sortant' ELSE 'entrant' END,
-        'libelle', CASE WHEN il.source = i.id THEN lt.outward ELSE lt.inward END,
-        'issue_key', p2.pkey || '-' || i2.issuenum,
-        'resume', i2.summary,
-        'ordre', il.sequence
-    ) ORDER BY il.sequence NULLS LAST, il.id) AS liens
-    FROM issuelink il
-    JOIN issuelinktype lt ON lt.id = il.linktype
-    JOIN jiraissue i2 ON i2.id = CASE WHEN il.source = i.id THEN il.destination ELSE il.source END
-    JOIN project p2 ON p2.id = i2.project
-    WHERE il.source = i.id OR il.destination = i.id
-) lk ON true
--- Metadonnees des pieces jointes uniquement : le binaire vit sur le filesystem
--- Jira, hors base.
-LEFT JOIN LATERAL (
-    SELECT jsonb_agg(jsonb_build_object(
-        'nom', fa.filename,
-        'mimetype', fa.mimetype,
-        'taille_octets', fa.filesize,
-        'auteur', u5.lower_user_name,
-        'create_date', fa.created
-    ) ORDER BY fa.created, fa.id) AS pieces_jointes
-    FROM fileattachment fa
-    LEFT JOIN app_user u5 ON fa.author = u5.user_key
-    WHERE fa.issueid = i.id
-) att ON true
-WHERE
-    p.pkey = %s;
+LEFT JOIN parents par ON par.issue_id = i.id
+LEFT JOIN liens_agg lk ON lk.issue_id = i.id
+LEFT JOIN attachments att ON att.issueid = i.id;
