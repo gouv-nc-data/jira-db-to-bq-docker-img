@@ -2,8 +2,12 @@
 -- Les CTE d'agrégation ci-dessous s'appuient dessus au lieu d'être corrélées à
 -- chaque ligne de jiraissue : c'est ce qui évite de rebalayer issuelink et
 -- fileattachment une fois par issue (voir le commentaire de liens_plats).
+--
+-- `cle` (PSPC-447) est calculée ici pour être disponible partout : sur l'issue
+-- elle-même et dans chaque agrégat enfant, sans rejoindre project à chaque fois.
 WITH issues_projet AS (
-    SELECT i.id
+    SELECT i.id,
+           p.pkey || '-' || i.issuenum AS cle
     FROM jiraissue i
     JOIN project p ON p.id = i.project
     WHERE p.pkey = %s
@@ -20,12 +24,14 @@ WITH issues_projet AS (
 -- en base) : ils sortent déjà par la branche 'sortant', comme le faisait le
 -- CASE de la version corrélée. Sans ce filtre ils seraient comptés deux fois.
 liens_plats AS (
-    SELECT il.source AS issue_id, il.destination AS autre_id,
+    SELECT il.source AS issue_id, ip.cle AS issue_cle,
+           il.destination AS autre_id,
            il.linktype, il.sequence, il.id, 'sortant' AS sens
     FROM issuelink il
     JOIN issues_projet ip ON ip.id = il.source
     UNION ALL
-    SELECT il.destination, il.source,
+    SELECT il.destination, ip.cle,
+           il.source,
            il.linktype, il.sequence, il.id, 'entrant'
     FROM issuelink il
     JOIN issues_projet ip ON ip.id = il.destination
@@ -39,6 +45,8 @@ liens_plats AS (
 liens_agg AS (
     SELECT lp.issue_id,
            jsonb_agg(jsonb_build_object(
+               'issue_id', lp.issue_id,
+               'issue_cle', lp.issue_cle,
                'type', lt.linkname,
                'style', lt.pstyle,
                'sens', lp.sens,
@@ -81,6 +89,8 @@ parents AS (
 attachments AS (
     SELECT fa.issueid,
            jsonb_agg(jsonb_build_object(
+               'issue_id', fa.issueid,
+               'issue_cle', ip.cle,
                'nom', fa.filename,
                'mimetype', fa.mimetype,
                'taille_octets', fa.filesize,
@@ -97,6 +107,11 @@ SELECT
     p.pname AS project,
     p.pkey AS project_code,
     i.issuenum AS numero,
+    -- Clé Jira telle qu'affichée dans l'interface (PSPC-447). Reconstruite ici
+    -- plutôt que laissée à la charge de l'utilisateur : `project_code` et
+    -- `numero` seuls obligeaient chacun à refaire la concaténation, avec un
+    -- cast sur numero (NUMERIC côté BigQuery) que beaucoup rataient.
+    ipr.cle,
     pr.pname AS type_urgence,
     it.pname AS type_tache,
     it.pstyle AS sous_type_tache,
@@ -160,12 +175,24 @@ LEFT JOIN
     app_user u1 ON i.reporter = u1.user_key
 LEFT JOIN
     app_user u2 ON i.assignee = u2.user_key
+-- Chaque agrégat enfant porte `issue_id` et `issue_cle`. dlt éclate ces tableaux
+-- en tables séparées (issues__commentaires, issues__custom_fields...) dont la
+-- seule clé était jusqu'ici `_dlt_parent_id` -> `issues._dlt_id` : un identifiant
+-- technique, régénéré à chaque run puisque la ressource tourne en `replace` et
+-- que dlt ne produit un `_dlt_id` déterministe qu'en merge upsert/insert-only
+-- (voir get_root_row_id_type). Les utilisateurs ne trouvaient donc aucune clé
+-- pour rattacher un commentaire ou un champ personnalisé à son issue, et toute
+-- table dérivée bâtie sur `_dlt_id` cassait au run suivant. Les deux colonnes
+-- ci-dessous sont des clés métier stables : coût nul, la donnée est déjà là.
+--
 -- Les LATERAL ci-dessous restent corrélés : jiraaction, label, customfieldvalue
 -- et changegroup portent tous un index sur la colonne d'issue en DMZ
 -- (action_issue, label_issue, cfvalue_issue, chggroup_issue_id), donc chaque
 -- itération est un Index Scan et non un Seq Scan.
 LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
+        'issue_id', i.id,
+        'issue_cle', ipr.cle,
         'create_date', a.created,
         'update_date', a.updated,
         'auteur', u3.lower_user_name,
@@ -175,16 +202,45 @@ LEFT JOIN LATERAL (
     LEFT JOIN app_user u3 ON a.author = u3.user_key
     WHERE a.issueid = i.id
 ) c ON true
+-- Les étiquettes passent d'un tableau de chaînes à un tableau d'objets pour
+-- pouvoir porter la clé, comme les autres enfants. La colonne `value` de
+-- issues__etiquettes est conservée sous le même nom : le changement est
+-- ascendant pour les requêtes existantes.
 LEFT JOIN LATERAL (
-    SELECT jsonb_agg(l.label) AS etiquettes
+    SELECT jsonb_agg(jsonb_build_object(
+        'issue_id', i.id,
+        'issue_cle', ipr.cle,
+        'value', l.label
+    )) AS etiquettes
     FROM label l
     WHERE l.issue = i.id
 ) e ON true
+-- `valeur` résout le piège de la colonne `value` : pour un champ à liste de
+-- choix, customfieldvalue.stringvalue porte l'id interne de l'option (38885) et
+-- non son libellé (Nouméa), ce dernier vivant dans customfieldoption.customvalue.
+-- Lire `value` donnait donc des identifiants incompréhensibles sur la majorité
+-- des champs. `valeur` applique le COALESCE une fois pour toutes, côté source.
+-- `value` et `option` sont conservées : elles restent utiles pour retrouver
+-- l'option d'origine, et les retirer casserait les requêtes existantes.
+--
+-- `field_id` lève l'ambiguïté des champs homonymes : sur PSPC, deux jeux
+-- d'options distincts (37507 et 42735-42739) remontent tous deux sous le nom
+-- « Année ». Sans l'id du champ, rien ne permet de les distinguer.
 LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
+        'issue_id', i.id,
+        'issue_cle', ipr.cle,
+        'field_id', cv.id,
         'field', cv.cfname,
         'option', co.customvalue,
         'value', COALESCE(
+            cfv.stringvalue,
+            cfv.numbervalue::text,
+            cfv.textvalue,
+            cfv.datevalue::text
+        ),
+        'valeur', COALESCE(
+            co.customvalue,
             cfv.stringvalue,
             cfv.numbervalue::text,
             cfv.textvalue,
@@ -198,6 +254,8 @@ LEFT JOIN LATERAL (
 ) fields ON true
 LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
+        'issue_id', i.id,
+        'issue_cle', ipr.cle,
         'date', cg.created,
         'auteur', u4.lower_user_name,
         'field', ci.field,
